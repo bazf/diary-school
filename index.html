@@ -1,0 +1,1343 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Щоденник спостережень — Зубрянський ліцей</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+<style>
+@media print {
+  body * { visibility: hidden; }
+  #print-area, #print-area * { visibility: visible; }
+  #print-area { position: absolute; left: 0; top: 0; width: 210mm; }
+  @page { size: A4; margin: 15mm 20mm; }
+  .no-print { display: none !important; }
+  .print-break { page-break-before: always; }
+  table { font-size: 10pt; }
+  th, td { padding: 4px 6px !important; }
+}
+body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+.tab-active { border-bottom: 3px solid #2563eb; color: #2563eb; font-weight: 600; }
+.modal-overlay { background: rgba(0,0,0,0.5); }
+select, input, textarea { -webkit-appearance: none; }
+.badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 9999px; font-size: 0.75rem; font-weight: 500; }
+</style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+// ============ CONSTANTS ============
+const SCHOOL_NAME = "Зубрянський ліцей Солонківської сільської ради";
+const SCHOOL_ADDRESS = "с. Зубра, вул. Шкільна, 1-А, Пустомитівський р-н, Львівська обл., 81135";
+const SCHOOL_CODE = "ЄДРПОУ: 22373629";
+const SCHOOL_PHONE = "тел.: (032) 227-53-33";
+const SCHOOL_DIRECTOR = "Фігура Надія Степанівна";
+
+const DAYS_OF_WEEK = ['Понеділок','Вівторок','Середа','Четвер','П\'ятниця'];
+const SUBJECTS = [
+  'Українська мова','Читання','Математика','Я досліджую світ',
+  'Англійська мова','Мистецтво','Музичне мистецтво','Фізична культура',
+  'Трудове навчання','Інформатика','Етика','Основи здоров\'я',
+  'Природознавство','Історія України','Українська література',
+  'Зарубіжна література','Географія','Біологія','Фізика','Хімія','Інше'
+];
+
+const BEHAVIOR_OPTIONS = [
+  'Спокійна, врівноважена','Активна, зацікавлена','Пасивна, байдужа',
+  'Тривожна, неспокійна','Агресивна','Легко відволікається',
+  'Плаксива','Замкнена','Імпульсивна','Гіперактивна',
+  'Втомлена, сонлива','Дратівлива'
+];
+
+const LEARNING_OPTIONS = [
+  'Виконує завдання самостійно','Потребує часткової допомоги',
+  'Потребує значної допомоги','Не може виконати завдання',
+  'Працює повільно, але якісно','Працює швидко, але з помилками',
+  'Виявляє інтерес до навчання','Не виявляє інтересу',
+  'Добре розуміє новий матеріал','Потребує повторного пояснення',
+  'Має труднощі з концентрацією','Швидко втомлюється'
+];
+
+const SOCIAL_OPTIONS = [
+  'Активно спілкується з однолітками','Має труднощі у спілкуванні',
+  'Уникає контактів','Конфліктує з іншими',
+  'Взаємодіє з вчителем','Не йде на контакт з вчителем',
+  'Працює в парі/групі','Не може працювати в групі',
+  'Допомагає іншим','Потребує підтримки однолітків'
+];
+
+const HELP_OPTIONS = [
+  'Словесна підказка','Покрокова інструкція','Спрощення завдання',
+  'Додатковий час','Візуальна опора','Емоційна підтримка',
+  'Фізична допомога','Індивідуальне пояснення','Адаптований матеріал',
+  'Переключення уваги','Заохочення, мотивація','Допомога в організації робочого місця',
+  'Супровід на перерві','Не потребувала допомоги'
+];
+
+const CATEGORIES_OF_NEEDS = [
+  'Порушення інтелектуального розвитку',
+  'Порушення зору','Порушення слуху',
+  'Порушення опорно-рухового апарату',
+  'Порушення мовлення','Затримка психічного розвитку',
+  'Розлади аутистичного спектра',
+  'Складні порушення розвитку',
+  'Інші труднощі у навчанні'
+];
+
+// ============ STORAGE ============
+const Storage = {
+  get(key, def) {
+    try { const d = localStorage.getItem('zubraDiary_' + key); return d ? JSON.parse(d) : def; }
+    catch { return def; }
+  },
+  set(key, val) {
+    try { localStorage.setItem('zubraDiary_' + key, JSON.stringify(val)); } catch {}
+  }
+};
+
+// ============ ID GENERATOR ============
+const genId = () => Date.now().toString(36) + Math.random().toString(36).substr(2,5);
+
+// ============ DATE HELPERS ============
+const formatDate = (d) => {
+  if (!d) return '';
+  const dt = new Date(d);
+  return dt.toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' });
+};
+const getDayName = (d) => {
+  if (!d) return '';
+  const dt = new Date(d);
+  const days = ['Неділя','Понеділок','Вівторок','Середа','Четвер','П\'ятниця','Субота'];
+  return days[dt.getDay()];
+};
+const todayStr = () => new Date().toISOString().split('T')[0];
+
+// ============ RANDOM OBSERVATION GENERATOR ============
+// pickOne returns a single item, pickN always returns an array
+const pickOne = (arr) => arr[Math.floor(Math.random() * arr.length)];
+const pickN = (arr, min = 1, max = 2) => {
+  const n = min + Math.floor(Math.random() * (max - min + 1));
+  const shuffled = [...arr].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, Math.min(n, arr.length));
+};
+
+const EMOTIONAL_STATES = [
+  '😊 Позитивний','😐 Нейтральний','😟 Тривожний',
+  '😢 Пригнічений','😠 Роздратований','😴 Апатичний'
+];
+
+const TOPICS_BY_SUBJECT = {
+  'Українська мова': [
+    'Велика буква у власних назвах','Правопис префіксів','Складання речень','Списування тексту',
+    'Розбір слова за будовою','Голосні та приголосні звуки','Поділ слів на склади','Наголос у словах',
+    'Апостроф','М\'який знак','Частини мови','Синоніми та антоніми','Речення за метою висловлювання',
+    'Головні та другорядні члени речення','Правопис суфіксів','Написання слів з ненаголошеними голосними',
+    'Подвоєння літер','Звуковий аналіз слів','Діалог і монолог','Робота з деформованим текстом'
+  ],
+  'Читання': [
+    'Читання вголос','Переказ тексту','Робота з ілюстрацією','Визначення головної думки',
+    'Вибіркове читання','Читання мовчки','Характеристика героїв','Складання плану тексту',
+    'Виразне читання вірша','Робота з прислів\'ями','Порівняння казок','Відповіді на запитання до тексту',
+    'Переказ за малюнками','Слухання оповідання','Робота з віршованим твором','Пошук інформації в тексті'
+  ],
+  'Математика': [
+    'Додавання і віднімання','Множення та ділення','Розв\'язування задач','Геометричні фігури',
+    'Порівняння чисел','Таблиця множення','Ділення з остачею','Числові вирази','Задачі на рух',
+    'Периметр і площа','Одиниці вимірювання','Дроби','Задачі на знаходження невідомого',
+    'Нумерація багатоцифрових чисел','Розряди і класи','Задачі на порівняння','Діаграми та таблиці',
+    'Округлення чисел','Порядок дій у виразах','Кути та їх вимірювання'
+  ],
+  'Я досліджую світ': [
+    'Природа навесні','Тварини і рослини','Моє тіло','Правила дорожнього руху',
+    'Пори року','Вода у природі','Повітря навколо нас','Ґрунт і його значення',
+    'Тварини нашого краю','Рослини лісу','Моя родина','Мій дім','Професії людей',
+    'Здоровий спосіб життя','Безпека вдома','Допомога іншим','Наше місто/село',
+    'Зірки та планети','Кругообіг води','Екологія та охорона природи'
+  ],
+  'Англійська мова': [
+    'Назви тварин','Числа 1-20','Кольори','Привітання та прощання',
+    'Моя сім\'я','Частини тіла','Їжа та напої','Одяг','Дні тижня',
+    'Місяці року','Шкільне приладдя','Моя кімната','Погода','Хобі та спорт',
+    'Час','Транспорт','Опис зовнішності','Свята','В магазині','Мій день'
+  ],
+  'Мистецтво': [
+    'Малювання пейзажу','Аплікація','Ліплення','Декоративне малювання',
+    'Малювання натюрморту','Портрет','Кольорознавство','Орнамент',
+    'Малювання за уявою','Ілюстрація казки','Колаж','Графіка',
+    'Петриківський розпис','Писанкарство','Витинанка','Малювання тварин'
+  ],
+  'Музичне мистецтво': [
+    'Розучування пісні','Слухання музики','Ритмічні вправи','Музична грамота',
+    'Народна пісня','Класична музика','Музичні інструменти','Хоровий спів',
+    'Музика і настрій','Танцювальні рухи','Українська народна музика','Музичні ігри'
+  ],
+  'Фізична культура': [
+    'Рухливі ігри','Вправи з м\'ячем','Стрибки та біг','Ранкова гімнастика',
+    'Естафети','Вправи на рівновагу','Стрибки через скакалку','Шикування та перешикування',
+    'Метання м\'яча','Лазіння та перелазіння','Акробатичні вправи','Вправи з обручем',
+    'Рухливі ігри на свіжому повітрі','Елементи баскетболу','Елементи футболу','Човниковий біг'
+  ],
+  'Трудове навчання': [
+    'Робота з папером','Оригамі','Конструювання','Робота з пластиліном',
+    'Аплікація з природних матеріалів','Виготовлення листівки','Робота з тканиною',
+    'Моделювання','Робота з ножицями','Вироби з нитокm','Виготовлення іграшки',
+    'Робота з картоном','Плетіння','Догляд за рослинами'
+  ],
+  'Інформатика': [
+    'Правила роботи за комп\'ютером','Клавіатурний тренажер','Графічний редактор',
+    'Текстовий редактор','Пошук інформації','Створення презентації',
+    'Алгоритми','Логічні задачі','Файли та папки','Безпека в інтернеті'
+  ],
+  'Природознавство': [
+    'Жива і нежива природа','Екосистеми','Тварини та їх середовище',
+    'Рослинний світ','Людина і природа','Погода та клімат','Корисні копалини',
+    'Водойми','Ланцюги живлення','Охорона природи','Червона книга України'
+  ],
+  'Основи здоров\'я': [
+    'Особиста гігієна','Здорове харчування','Режим дня','Фізична активність',
+    'Безпека на дорозі','Безпека вдома','Перша допомога','Шкідливі звички',
+    'Емоції та почуття','Спілкування з однолітками','Безпека в інтернеті','Безпека на воді'
+  ],
+  'Історія України': [
+    'Київська Русь','Козацька доба','Тарас Шевченко','Незалежність України',
+    'Визначні місця України','Символи України','Видатні українці','Культура та традиції',
+    'Друга світова війна','Українська революція','Голодомор','Сучасна Україна'
+  ],
+  'Українська література': [
+    'Вивчення вірша напам\'ять','Аналіз оповідання','Характеристика персонажів',
+    'Робота з байкою','Народна казка','Авторська казка','Ліричний твір',
+    'Гумористичний твір','Складання відгуку','Порівняльна характеристика'
+  ],
+};
+
+const RANDOM_NOTES = [
+  'Дитина старалася, але швидко втомилась до кінця уроку',
+  'Сьогодні значно краще включалась у роботу порівняно з минулим тижнем',
+  'Виникли труднощі з розумінням інструкції, потрібне спрощення',
+  'Добре реагувала на похвалу та заохочення',
+  'Мала конфлікт з одноліткою на перерві, але на уроці працювала спокійно',
+  'Після перерви довго не могла зосередитись',
+  'Потребувала додаткового часу на виконання завдання',
+  'Самостійно почала виконувати вправу — це прогрес!',
+  'Зверталась по допомогу до вчителя без нагадування',
+  'Виявляла ініціативу під час групової роботи',
+  'Дуже хвилювалась перед відповіддю біля дошки',
+  'Потребувала частих пауз для відпочинку',
+  'Працювала з адаптованим роздатковим матеріалом',
+  'Виконала завдання з мінімальною допомогою',
+  'Емоційно реагувала на зауваження, потребувала заспокоєння',
+  'Активно працювала першу половину уроку, потім втратила інтерес',
+  'Зуміла працювати в парі з іншим учнем',
+  'Правильно виконала спрощений варіант контрольної роботи',
+  '',''  // пусті варіанти щоб іноді не було нотатки
+];
+
+const RANDOM_RECOMMENDATIONS = [
+  'Продовжувати використовувати візуальні опори',
+  'Збільшити час на виконання письмових завдань',
+  'Частіше використовувати покрокові інструкції',
+  'Посилити роботу над дрібною моторикою',
+  'Розвивати навички комунікації з однолітками',
+  'Працювати над концентрацією уваги (вправи на 5-7 хвилин)',
+  'Залучати до парної роботи з підтримкою асистента',
+  'Підготувати адаптовані матеріали для наступної теми',
+  'Обговорити з батьками виконання домашнього завдання',
+  'Провести індивідуальне заняття для закріплення теми',
+  'Використовувати таймер для структурування часу',
+  'Подавати завдання меншими частинами',
+  'Заохочувати самостійність, зменшуючи обсяг підтримки',
+  'Змінити місце за партою — ближче до вчителя',
+  'Обговорити ситуацію з психологом школи',
+  '',''  // пусті варіанти
+];
+
+const makeRandomObs = (studentId) => {
+  const subject = pickOne(SUBJECTS.filter(s => s !== 'Інше'));
+  const topicPool = TOPICS_BY_SUBJECT[subject] || ['Вивчення нового матеріалу','Закріплення теми','Самостійна робота','Повторення пройденого','Тематичне оцінювання'];
+  return {
+    id: genId(),
+    studentId,
+    date: todayStr(),
+    subject,
+    topic: pickOne(topicPool),
+    lessonNumber: String(Math.ceil(Math.random() * 7)),
+    behavior: pickN(BEHAVIOR_OPTIONS, 1, 3),
+    learning: pickN(LEARNING_OPTIONS, 1, 3),
+    social: pickN(SOCIAL_OPTIONS, 1, 2),
+    helpProvided: pickN(HELP_OPTIONS, 1, 3),
+    emotionalState: pickOne(EMOTIONAL_STATES),
+    independence: Math.ceil(Math.random() * 5),
+    detailedNotes: pickOne(RANDOM_NOTES),
+    recommendations: pickOne(RANDOM_RECOMMENDATIONS),
+  };
+};
+
+// ============ ICONS (SVG) ============
+const Icons = {
+  plus: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>,
+  edit: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>,
+  trash: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>,
+  print: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>,
+  user: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>,
+  book: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>,
+  chart: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>,
+  calendar: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>,
+  menu: <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16"/></svg>,
+  close: <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>,
+  back: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7"/></svg>,
+  save: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>,
+  download: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>,
+  search: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>,
+  home: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>,
+  settings: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>,
+  eye: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>,
+};
+
+// ============ MULTI SELECT COMPONENT ============
+function MultiSelect({ options, selected, onChange, placeholder }) {
+  const [open, setOpen] = useState(false);
+  const [custom, setCustom] = useState('');
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const toggle = (opt) => {
+    if (selected.includes(opt)) onChange(selected.filter(s => s !== opt));
+    else onChange([...selected, opt]);
+  };
+  const addCustom = () => {
+    if (custom.trim() && !selected.includes(custom.trim())) {
+      onChange([...selected, custom.trim()]);
+      setCustom('');
+    }
+  };
+
+  return (
+    <div ref={ref} className="relative">
+      <div
+        className="border rounded-lg p-2 min-h-10 cursor-pointer bg-white flex flex-wrap gap-1 items-center"
+        onClick={() => setOpen(!open)}
+      >
+        {selected.length === 0 && <span className="text-gray-400 text-sm">{placeholder}</span>}
+        {selected.map(s => (
+          <span key={s} className="badge bg-blue-100 text-blue-800">
+            {s}
+            <button className="ml-1 text-blue-600 hover:text-blue-800" onClick={(e) => { e.stopPropagation(); toggle(s); }}>&times;</button>
+          </span>
+        ))}
+      </div>
+      {open && (
+        <div className="absolute z-50 mt-1 w-full bg-white border rounded-lg shadow-lg max-h-60 overflow-y-auto">
+          <div className="p-2 border-b flex gap-1">
+            <input
+              className="flex-1 border rounded px-2 py-1 text-sm"
+              placeholder="Додати своє..."
+              value={custom}
+              onChange={e => setCustom(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && addCustom()}
+              onClick={e => e.stopPropagation()}
+            />
+            <button onClick={(e) => { e.stopPropagation(); addCustom(); }} className="text-sm bg-blue-500 text-white px-2 rounded">+</button>
+          </div>
+          {options.map(opt => (
+            <label key={opt} className="flex items-center px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm" onClick={e => e.stopPropagation()}>
+              <input type="checkbox" checked={selected.includes(opt)} onChange={() => toggle(opt)} className="mr-2 rounded"/>
+              {opt}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============ MODAL ============
+function Modal({ open, onClose, title, children, wide }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay" onClick={onClose}>
+      <div className={`bg-white rounded-xl shadow-2xl w-full ${wide ? 'max-w-4xl' : 'max-w-lg'} max-h-screen overflow-y-auto`} onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b sticky top-0 bg-white rounded-t-xl z-10">
+          <h3 className="text-lg font-semibold text-gray-800">{title}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">{Icons.close}</button>
+        </div>
+        <div className="p-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+// ============ CONFIRM DIALOG ============
+function ConfirmDialog({ open, onClose, onConfirm, title, message }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+        <div className="p-6">
+          <h3 className="text-lg font-semibold text-gray-800 mb-2">{title}</h3>
+          <p className="text-gray-600">{message}</p>
+        </div>
+        <div className="flex gap-3 p-4 border-t justify-end">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg border text-gray-600 hover:bg-gray-50">Скасувати</button>
+          <button onClick={() => { onConfirm(); onClose(); }} className="px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600">Видалити</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============ STUDENT FORM ============
+function StudentForm({ student, onSave, onClose }) {
+  const [form, setForm] = useState(student || {
+    id: genId(),
+    lastName: '', firstName: '', middleName: '',
+    className: '', dateOfBirth: '', category: '',
+    programType: 'Адаптована', iepNumber: '', iepDate: '',
+    assistantName: '', schoolYear: '2025-2026',
+    parentName: '', parentPhone: '',
+    notes: '', schedule: [], createdAt: todayStr()
+  });
+
+  // Functional updater avoids stale-closure bugs
+  const upd = useCallback((k, v) => setForm(prev => ({...prev, [k]: v})), []);
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3">
+        {/* Прізвище */}
+        <div className="col-span-1">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Прізвище <span className="text-red-500">*</span></label>
+          <input className="w-full border rounded-lg p-2 text-sm" value={form.lastName||''} onChange={e => upd('lastName', e.target.value)}/>
+        </div>
+        {/* Ім'я */}
+        <div className="col-span-1">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Ім'я <span className="text-red-500">*</span></label>
+          <input className="w-full border rounded-lg p-2 text-sm" value={form.firstName||''} onChange={e => upd('firstName', e.target.value)}/>
+        </div>
+        {/* По батькові */}
+        <div className="col-span-1">
+          <label className="block text-sm font-medium text-gray-700 mb-1">По батькові</label>
+          <input className="w-full border rounded-lg p-2 text-sm" value={form.middleName||''} onChange={e => upd('middleName', e.target.value)}/>
+        </div>
+        {/* Клас */}
+        <div className="col-span-1">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Клас <span className="text-red-500">*</span></label>
+          <input className="w-full border rounded-lg p-2 text-sm" value={form.className||''} onChange={e => upd('className', e.target.value)}/>
+        </div>
+        {/* Дата народження */}
+        <div className="col-span-1">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Дата народження</label>
+          <input type="date" className="w-full border rounded-lg p-2 text-sm" value={form.dateOfBirth||''} onChange={e => upd('dateOfBirth', e.target.value)}/>
+        </div>
+        {/* Навчальний рік */}
+        <div className="col-span-1">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Навчальний рік</label>
+          <input className="w-full border rounded-lg p-2 text-sm" value={form.schoolYear||''} onChange={e => upd('schoolYear', e.target.value)}/>
+        </div>
+        {/* Категорія ООП */}
+        <div className="col-span-2">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Категорія ООП</label>
+          <select className="w-full border rounded-lg p-2 text-sm bg-white" value={form.category||''} onChange={e => upd('category', e.target.value)}>
+            <option value="">— Оберіть —</option>
+            {CATEGORIES_OF_NEEDS.map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </div>
+        {/* Тип програми */}
+        <div className="col-span-2">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Тип навчальної програми</label>
+          <select className="w-full border rounded-lg p-2 text-sm bg-white" value={form.programType||''} onChange={e => upd('programType', e.target.value)}>
+            <option value="">— Оберіть —</option>
+            {['Адаптована','Модифікована','Модифіковано-адаптована','Загальноосвітня з корекційним компонентом'].map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </div>
+        {/* Номер ІПР */}
+        <div className="col-span-1">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Номер ІПР</label>
+          <input className="w-full border rounded-lg p-2 text-sm" value={form.iepNumber||''} onChange={e => upd('iepNumber', e.target.value)}/>
+        </div>
+        {/* Дата ІПР */}
+        <div className="col-span-1">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Дата ІПР</label>
+          <input type="date" className="w-full border rounded-lg p-2 text-sm" value={form.iepDate||''} onChange={e => upd('iepDate', e.target.value)}/>
+        </div>
+        {/* Асистент */}
+        <div className="col-span-2">
+          <label className="block text-sm font-medium text-gray-700 mb-1">ПІБ асистента вчителя <span className="text-red-500">*</span></label>
+          <input className="w-full border rounded-lg p-2 text-sm" value={form.assistantName||''} onChange={e => upd('assistantName', e.target.value)}/>
+        </div>
+        {/* Батьки */}
+        <div className="col-span-1">
+          <label className="block text-sm font-medium text-gray-700 mb-1">ПІБ батьків/опікунів</label>
+          <input className="w-full border rounded-lg p-2 text-sm" value={form.parentName||''} onChange={e => upd('parentName', e.target.value)}/>
+        </div>
+        {/* Телефон */}
+        <div className="col-span-1">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Телефон батьків</label>
+          <input type="tel" className="w-full border rounded-lg p-2 text-sm" value={form.parentPhone||''} onChange={e => upd('parentPhone', e.target.value)}/>
+        </div>
+        {/* Примітки */}
+        <div className="col-span-2">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Додаткові примітки</label>
+          <textarea className="w-full border rounded-lg p-2 text-sm" rows={3} value={form.notes||''} onChange={e => upd('notes', e.target.value)}/>
+        </div>
+      </div>
+      <div className="flex gap-3 justify-end pt-2 border-t">
+        <button onClick={onClose} className="px-4 py-2 rounded-lg border text-gray-600 hover:bg-gray-50">Скасувати</button>
+        <button
+          onClick={() => { if(form.lastName && form.firstName && form.className && form.assistantName) onSave(form); }}
+          className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-2"
+          disabled={!form.lastName || !form.firstName || !form.className || !form.assistantName}
+        >
+          {Icons.save} Зберегти
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ============ OBSERVATION FORM ============
+function ObservationForm({ obs, studentId, onSave, onClose }) {
+  const [form, setForm] = useState(obs || {
+    id: genId(), studentId, date: todayStr(),
+    subject: '', topic: '', lessonNumber: '',
+    behavior: [], learning: [], social: [], helpProvided: [],
+    emotionalState: '', independence: 3,
+    detailedNotes: '', recommendations: ''
+  });
+
+  const upd = useCallback((k, v) => setForm(prev => ({...prev, [k]: v})), []);
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Дата <span className="text-red-500">*</span></label>
+          <input type="date" className="w-full border rounded-lg p-2 text-sm" value={form.date} onChange={e => upd('date', e.target.value)}/>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">№ уроку</label>
+          <input type="number" min="1" max="8" className="w-full border rounded-lg p-2 text-sm" value={form.lessonNumber} onChange={e => upd('lessonNumber', e.target.value)}/>
+        </div>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Предмет <span className="text-red-500">*</span></label>
+        <select className="w-full border rounded-lg p-2 text-sm bg-white" value={form.subject} onChange={e => upd('subject', e.target.value)}>
+          <option value="">— Оберіть предмет —</option>
+          {SUBJECTS.map(s => <option key={s}>{s}</option>)}
+        </select>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Тема уроку</label>
+        <input className="w-full border rounded-lg p-2 text-sm" value={form.topic} onChange={e => upd('topic', e.target.value)} placeholder="Введіть тему уроку"/>
+      </div>
+
+      <div className="bg-yellow-50 rounded-lg p-3">
+        <h4 className="font-medium text-yellow-800 mb-1 text-sm">Емоційний стан</h4>
+        <div className="flex flex-wrap gap-2">
+          {['😊 Позитивний','😐 Нейтральний','😟 Тривожний','😢 Пригнічений','😠 Роздратований','😴 Апатичний'].map(e => (
+            <button key={e} onClick={() => upd('emotionalState', e)}
+              className={`px-3 py-1 rounded-full text-sm border ${form.emotionalState === e ? 'bg-yellow-500 text-white border-yellow-500' : 'bg-white hover:bg-yellow-100 border-yellow-300'}`}>
+              {e}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Рівень самостійності: <strong>{form.independence}/5</strong></label>
+        <input type="range" min="1" max="5" className="w-full" value={form.independence} onChange={e => upd('independence', parseInt(e.target.value))}/>
+        <div className="flex justify-between text-xs text-gray-400"><span>Повна залежність</span><span>Повна самостійність</span></div>
+      </div>
+
+      <div><label className="block text-sm font-medium text-gray-700 mb-2">Поведінка на уроці</label>
+        <MultiSelect options={BEHAVIOR_OPTIONS} selected={form.behavior} onChange={v => upd('behavior', v)} placeholder="Оберіть характеристики поведінки"/>
+      </div>
+      <div><label className="block text-sm font-medium text-gray-700 mb-2">Навчальна діяльність</label>
+        <MultiSelect options={LEARNING_OPTIONS} selected={form.learning} onChange={v => upd('learning', v)} placeholder="Оберіть характеристики навчання"/>
+      </div>
+      <div><label className="block text-sm font-medium text-gray-700 mb-2">Соціальна взаємодія</label>
+        <MultiSelect options={SOCIAL_OPTIONS} selected={form.social} onChange={v => upd('social', v)} placeholder="Оберіть характеристики взаємодії"/>
+      </div>
+      <div><label className="block text-sm font-medium text-gray-700 mb-2">Допомога асистента</label>
+        <MultiSelect options={HELP_OPTIONS} selected={form.helpProvided} onChange={v => upd('helpProvided', v)} placeholder="Оберіть види допомоги"/>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Детальні нотатки</label>
+        <textarea className="w-full border rounded-lg p-2 text-sm" rows={3} value={form.detailedNotes} onChange={e => upd('detailedNotes', e.target.value)} placeholder="Опишіть деталі спостереження..."/>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Рекомендації</label>
+        <textarea className="w-full border rounded-lg p-2 text-sm" rows={2} value={form.recommendations} onChange={e => upd('recommendations', e.target.value)} placeholder="Рекомендації для подальшої роботи..."/>
+      </div>
+
+      <div className="flex gap-3 justify-end pt-2 border-t">
+        <button onClick={onClose} className="px-4 py-2 rounded-lg border text-gray-600 hover:bg-gray-50">Скасувати</button>
+        <button
+          onClick={() => { if(form.date && form.subject) onSave(form); }}
+          className="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 flex items-center gap-2"
+          disabled={!form.date || !form.subject}
+        >
+          {Icons.save} Зберегти спостереження
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ============ STUDENTS LIST ============
+function StudentsPage({ students, onSelect, onAdd, onEdit, onDelete }) {
+  const [search, setSearch] = useState('');
+  const [confirm, setConfirm] = useState(null);
+  const filtered = students.filter(s =>
+    `${s.lastName} ${s.firstName} ${s.className}`.toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div>
+      <div className="flex flex-col sm:flex-row gap-3 mb-4">
+        <div className="relative flex-1">
+          <div className="absolute inset-y-0 left-3 flex items-center text-gray-400">{Icons.search}</div>
+          <input className="w-full pl-10 pr-4 py-2 border rounded-lg text-sm" placeholder="Пошук учня..." value={search} onChange={e => setSearch(e.target.value)}/>
+        </div>
+        <button onClick={onAdd} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm font-medium whitespace-nowrap">
+          {Icons.plus} Додати учня
+        </button>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="text-center py-16">
+          <div className="text-gray-300 mb-4"><svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg></div>
+          <h3 className="text-lg font-medium text-gray-500">Учнів ще не додано</h3>
+          <p className="text-gray-400 mt-1 text-sm">Натисніть «Додати учня» щоб почати</p>
+        </div>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {filtered.map(s => (
+            <div key={s.id} className="bg-white rounded-xl border hover:shadow-md transition-shadow cursor-pointer" onClick={() => onSelect(s.id)}>
+              <div className="p-4">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h3 className="font-semibold text-gray-800">{s.lastName} {s.firstName}</h3>
+                    <p className="text-sm text-gray-500">{s.className} клас</p>
+                  </div>
+                  <span className="badge bg-purple-100 text-purple-700">{s.category ? s.category.split(' ').slice(0,2).join(' ') : 'ООП'}</span>
+                </div>
+                <div className="mt-3 text-xs text-gray-400 space-y-1">
+                  <p>Асистент: {s.assistantName}</p>
+                  <p>Програма: {s.programType}</p>
+                </div>
+              </div>
+              <div className="flex border-t divide-x">
+                <button onClick={e => { e.stopPropagation(); onEdit(s); }} className="flex-1 py-2 text-sm text-blue-600 hover:bg-blue-50 flex items-center justify-center gap-1">{Icons.edit} Редагувати</button>
+                <button onClick={e => { e.stopPropagation(); setConfirm(s.id); }} className="flex-1 py-2 text-sm text-red-500 hover:bg-red-50 flex items-center justify-center gap-1">{Icons.trash} Видалити</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <ConfirmDialog open={!!confirm} onClose={() => setConfirm(null)} onConfirm={() => onDelete(confirm)} title="Видалити учня?" message="Усі спостереження цього учня також будуть видалені. Цю дію неможливо скасувати."/>
+    </div>
+  );
+}
+
+// ============ STUDENT DETAIL + OBSERVATIONS ============
+function StudentDetail({ student, observations, onBack, onAddObs, onQuickObs, onEditObs, onDeleteObs, onPrint }) {
+  const [tab, setTab] = useState('observations');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [subjectFilter, setSubjectFilter] = useState('');
+  const [confirm, setConfirm] = useState(null);
+
+  const filtered = observations
+    .filter(o => o.studentId === student.id)
+    .filter(o => !dateFrom || o.date >= dateFrom)
+    .filter(o => !dateTo || o.date <= dateTo)
+    .filter(o => !subjectFilter || o.subject === subjectFilter)
+    .sort((a,b) => b.date.localeCompare(a.date) || (b.lessonNumber||0) - (a.lessonNumber||0));
+
+  const subjectsUsed = [...new Set(observations.filter(o => o.studentId === student.id).map(o => o.subject))];
+
+  const stats = useMemo(() => {
+    const obs = observations.filter(o => o.studentId === student.id);
+    const total = obs.length;
+    const avgIndependence = total ? (obs.reduce((s,o) => s + (o.independence||3), 0) / total).toFixed(1) : 0;
+    const emotions = {};
+    obs.forEach(o => { if(o.emotionalState) emotions[o.emotionalState] = (emotions[o.emotionalState]||0) + 1; });
+    const topEmotion = Object.entries(emotions).sort((a,b) => b[1]-a[1])[0];
+    return { total, avgIndependence, topEmotion: topEmotion ? topEmotion[0] : '—' };
+  }, [observations, student.id]);
+
+  return (
+    <div>
+      <button onClick={onBack} className="flex items-center gap-1 text-blue-600 hover:text-blue-800 mb-4 text-sm">{Icons.back} Назад до списку</button>
+
+      <div className="bg-white rounded-xl border p-4 mb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-bold text-gray-800">{student.lastName} {student.firstName} {student.middleName}</h2>
+            <p className="text-sm text-gray-500">{student.className} клас &bull; {student.category || 'ООП'} &bull; {student.programType}</p>
+            <p className="text-xs text-gray-400 mt-1">Асистент: {student.assistantName} &bull; Навч. рік: {student.schoolYear}</p>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => onPrint(student, filtered)} className="flex items-center gap-1 px-3 py-2 rounded-lg border text-gray-600 hover:bg-gray-50 text-sm">{Icons.print} Друк</button>
+            <button onClick={onQuickObs} title="Створити чернетку спостереження на сьогодні з випадковими даними для редагування"
+              className="flex items-center gap-1 bg-yellow-500 text-white px-3 py-2 rounded-lg hover:bg-yellow-600 text-sm">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+              Швидкий запис
+            </button>
+            <button onClick={onAddObs} className="flex items-center gap-1 bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 text-sm">{Icons.plus} Нове</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Stats cards */}
+      <div className="grid grid-cols-3 gap-3 mb-4">
+        <div className="bg-white rounded-lg border p-3 text-center">
+          <div className="text-2xl font-bold text-blue-600">{stats.total}</div>
+          <div className="text-xs text-gray-500">Спостережень</div>
+        </div>
+        <div className="bg-white rounded-lg border p-3 text-center">
+          <div className="text-2xl font-bold text-green-600">{stats.avgIndependence}</div>
+          <div className="text-xs text-gray-500">Сер. самостійність</div>
+        </div>
+        <div className="bg-white rounded-lg border p-3 text-center">
+          <div className="text-lg font-bold text-yellow-600">{stats.topEmotion}</div>
+          <div className="text-xs text-gray-500">Частий стан</div>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex border-b mb-4 overflow-x-auto no-print">
+        {[['observations','Спостереження'],['profile','Профіль учня'],['analytics','Аналітика']].map(([k,v]) => (
+          <button key={k} onClick={() => setTab(k)} className={`px-4 py-2 text-sm whitespace-nowrap ${tab===k ? 'tab-active' : 'text-gray-500 hover:text-gray-700'}`}>{v}</button>
+        ))}
+      </div>
+
+      {tab === 'observations' && (
+        <div>
+          {/* Filters */}
+          <div className="flex flex-col sm:flex-row gap-2 mb-4 bg-gray-100 p-3 rounded-lg">
+            <input type="date" className="border rounded-lg px-3 py-1.5 text-sm bg-white" value={dateFrom} onChange={e => setDateFrom(e.target.value)} placeholder="Від"/>
+            <input type="date" className="border rounded-lg px-3 py-1.5 text-sm bg-white" value={dateTo} onChange={e => setDateTo(e.target.value)} placeholder="До"/>
+            <select className="border rounded-lg px-3 py-1.5 text-sm bg-white" value={subjectFilter} onChange={e => setSubjectFilter(e.target.value)}>
+              <option value="">Всі предмети</option>
+              {subjectsUsed.map(s => <option key={s}>{s}</option>)}
+            </select>
+            {(dateFrom || dateTo || subjectFilter) && (
+              <button onClick={() => { setDateFrom(''); setDateTo(''); setSubjectFilter(''); }} className="text-sm text-red-500 hover:text-red-700">Скинути</button>
+            )}
+          </div>
+
+          {filtered.length === 0 ? (
+            <div className="text-center py-12 text-gray-400">
+              <p className="text-lg">Спостережень ще немає</p>
+              <p className="text-sm mt-1">Додайте перше спостереження за учнем</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filtered.map(obs => (
+                <div key={obs.id} className="bg-white rounded-lg border p-4 hover:shadow-sm transition-shadow">
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
+                    <div className="flex-1">
+                      <div className="flex flex-wrap items-center gap-2 mb-2">
+                        <span className="font-medium text-gray-800">{formatDate(obs.date)}</span>
+                        <span className="text-xs text-gray-400">{getDayName(obs.date)}</span>
+                        {obs.lessonNumber && <span className="badge bg-gray-100 text-gray-600">Урок {obs.lessonNumber}</span>}
+                        <span className="badge bg-blue-100 text-blue-700">{obs.subject}</span>
+                        {obs.emotionalState && <span className="text-sm">{obs.emotionalState}</span>}
+                      </div>
+                      {obs.topic && <p className="text-sm text-gray-600 mb-2">Тема: {obs.topic}</p>}
+
+                      <div className="flex flex-wrap gap-1 mb-2">
+                        {obs.behavior?.map(b => <span key={b} className="badge bg-red-50 text-red-600">{b}</span>)}
+                        {obs.learning?.map(l => <span key={l} className="badge bg-green-50 text-green-600">{l}</span>)}
+                        {obs.social?.map(s => <span key={s} className="badge bg-purple-50 text-purple-600">{s}</span>)}
+                      </div>
+
+                      {obs.helpProvided?.length > 0 && (
+                        <p className="text-xs text-gray-500">Допомога: {obs.helpProvided.join(', ')}</p>
+                      )}
+                      {obs.detailedNotes && <p className="text-sm text-gray-600 mt-2 italic">«{obs.detailedNotes}»</p>}
+                      {obs.recommendations && <p className="text-sm text-orange-600 mt-1">Рек.: {obs.recommendations}</p>}
+
+                      <div className="mt-2 flex items-center gap-1">
+                        <span className="text-xs text-gray-400">Самостійність:</span>
+                        {[1,2,3,4,5].map(i => (
+                          <span key={i} className={`w-4 h-4 rounded-full inline-block ${i <= (obs.independence||3) ? 'bg-green-500' : 'bg-gray-200'}`}/>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex sm:flex-col gap-2">
+                      <button onClick={() => onEditObs(obs)} className="text-blue-600 hover:text-blue-800 p-1">{Icons.edit}</button>
+                      <button onClick={() => setConfirm(obs.id)} className="text-red-500 hover:text-red-700 p-1">{Icons.trash}</button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === 'profile' && (
+        <div className="bg-white rounded-xl border p-6 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+            {[
+              ['ПІБ учня', `${student.lastName} ${student.firstName} ${student.middleName||''}`],
+              ['Клас', student.className],
+              ['Дата народження', student.dateOfBirth ? formatDate(student.dateOfBirth) : '—'],
+              ['Категорія ООП', student.category || '—'],
+              ['Тип програми', student.programType || '—'],
+              ['Номер ІПР', student.iepNumber || '—'],
+              ['Дата ІПР', student.iepDate ? formatDate(student.iepDate) : '—'],
+              ['Асистент вчителя', student.assistantName],
+              ['Навчальний рік', student.schoolYear],
+              ['Батьки/опікуни', student.parentName || '—'],
+              ['Телефон батьків', student.parentPhone || '—'],
+            ].map(([label, val]) => (
+              <div key={label}><span className="text-gray-500">{label}:</span> <span className="font-medium text-gray-800 ml-1">{val}</span></div>
+            ))}
+          </div>
+          {student.notes && (
+            <div className="border-t pt-3">
+              <span className="text-sm text-gray-500">Примітки:</span>
+              <p className="text-sm text-gray-800 mt-1">{student.notes}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === 'analytics' && <AnalyticsTab observations={observations.filter(o => o.studentId === student.id)}/>}
+
+      <ConfirmDialog open={!!confirm} onClose={() => setConfirm(null)} onConfirm={() => onDeleteObs(confirm)} title="Видалити спостереження?" message="Цю дію неможливо скасувати."/>
+    </div>
+  );
+}
+
+// ============ ANALYTICS ============
+function AnalyticsTab({ observations }) {
+  if (observations.length < 2) return <div className="text-center py-12 text-gray-400">Потрібно мінімум 2 спостереження для аналітики</div>;
+
+  const sorted = [...observations].sort((a,b) => a.date.localeCompare(b.date));
+
+  // Independence over time
+  const indData = sorted.map(o => ({ date: formatDate(o.date), val: o.independence || 3, subject: o.subject }));
+
+  // Subject frequency
+  const subjCount = {};
+  observations.forEach(o => { subjCount[o.subject] = (subjCount[o.subject]||0) + 1; });
+  const subjEntries = Object.entries(subjCount).sort((a,b) => b[1]-a[1]);
+
+  // Behavior frequency
+  const behCount = {};
+  observations.forEach(o => o.behavior?.forEach(b => { behCount[b] = (behCount[b]||0)+1; }));
+  const behEntries = Object.entries(behCount).sort((a,b) => b[1]-a[1]).slice(0,8);
+
+  // Help frequency
+  const helpCount = {};
+  observations.forEach(o => o.helpProvided?.forEach(h => { helpCount[h] = (helpCount[h]||0)+1; }));
+  const helpEntries = Object.entries(helpCount).sort((a,b) => b[1]-a[1]).slice(0,8);
+
+  const maxBeh = behEntries.length ? behEntries[0][1] : 1;
+  const maxHelp = helpEntries.length ? helpEntries[0][1] : 1;
+
+  return (
+    <div className="space-y-6">
+      {/* Independence chart */}
+      <div className="bg-white rounded-xl border p-4">
+        <h3 className="font-semibold text-gray-800 mb-3">Динаміка самостійності</h3>
+        <div className="flex items-end gap-1 h-32 overflow-x-auto pb-2">
+          {indData.map((d, i) => (
+            <div key={i} className="flex flex-col items-center min-w-8">
+              <div className="text-xs text-gray-500 mb-1">{d.val}</div>
+              <div className="w-6 rounded-t" style={{ height: `${d.val * 20}%`, background: `hsl(${d.val * 30}, 70%, 50%)` }}/>
+              <div className="text-xs text-gray-400 mt-1 whitespace-nowrap" style={{fontSize:'9px'}}>{d.date.slice(0,5)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Subject distribution */}
+      <div className="bg-white rounded-xl border p-4">
+        <h3 className="font-semibold text-gray-800 mb-3">Предмети (кількість спостережень)</h3>
+        <div className="space-y-2">
+          {subjEntries.map(([subj, count]) => (
+            <div key={subj} className="flex items-center gap-2">
+              <span className="text-sm text-gray-600 w-40 truncate">{subj}</span>
+              <div className="flex-1 bg-gray-100 rounded-full h-4">
+                <div className="bg-blue-500 h-4 rounded-full text-xs text-white flex items-center justify-center" style={{width: `${count/observations.length*100}%`, minWidth:'24px'}}>{count}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Behavior patterns */}
+      {behEntries.length > 0 && (
+        <div className="bg-white rounded-xl border p-4">
+          <h3 className="font-semibold text-gray-800 mb-3">Найчастіші поведінкові прояви</h3>
+          <div className="space-y-2">
+            {behEntries.map(([beh, count]) => (
+              <div key={beh} className="flex items-center gap-2">
+                <span className="text-sm text-gray-600 w-48 truncate">{beh}</span>
+                <div className="flex-1 bg-gray-100 rounded-full h-4">
+                  <div className="bg-red-400 h-4 rounded-full text-xs text-white flex items-center justify-center" style={{width: `${count/maxBeh*100}%`, minWidth:'24px'}}>{count}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Help patterns */}
+      {helpEntries.length > 0 && (
+        <div className="bg-white rounded-xl border p-4">
+          <h3 className="font-semibold text-gray-800 mb-3">Найчастіші види допомоги</h3>
+          <div className="space-y-2">
+            {helpEntries.map(([h, count]) => (
+              <div key={h} className="flex items-center gap-2">
+                <span className="text-sm text-gray-600 w-48 truncate">{h}</span>
+                <div className="flex-1 bg-gray-100 rounded-full h-4">
+                  <div className="bg-green-400 h-4 rounded-full text-xs text-white flex items-center justify-center" style={{width: `${count/maxHelp*100}%`, minWidth:'24px'}}>{count}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============ PRINT REPORT ============
+function PrintReport({ student, observations, onClose }) {
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const printRef = useRef(null);
+
+  const filtered = observations
+    .filter(o => !dateFrom || o.date >= dateFrom)
+    .filter(o => !dateTo || o.date <= dateTo)
+    .sort((a,b) => a.date.localeCompare(b.date));
+
+  const handlePrint = () => {
+    const content = printRef.current.innerHTML;
+    const win = window.open('', '_blank');
+    win.document.write(`<!DOCTYPE html><html lang="uk"><head><meta charset="UTF-8"><title>Щоденник спостережень — ${student.lastName} ${student.firstName}</title>
+    <style>
+      body { font-family: 'Times New Roman', serif; font-size: 12pt; margin: 0; padding: 20mm; color: #000; }
+      h1 { font-size: 14pt; text-align: center; margin-bottom: 5mm; }
+      h2 { font-size: 13pt; text-align: center; margin-bottom: 3mm; }
+      h3 { font-size: 12pt; margin-top: 8mm; margin-bottom: 3mm; }
+      .header { text-align: center; margin-bottom: 10mm; }
+      .header p { margin: 2px 0; font-size: 10pt; }
+      .info-table { width: 100%; border-collapse: collapse; margin-bottom: 5mm; }
+      .info-table td { padding: 3px 6px; font-size: 11pt; vertical-align: top; }
+      .info-table td:first-child { font-weight: bold; width: 180px; }
+      table.obs { width: 100%; border-collapse: collapse; margin-top: 3mm; font-size: 9pt; }
+      table.obs th, table.obs td { border: 1px solid #000; padding: 4px 6px; text-align: left; vertical-align: top; }
+      table.obs th { background: #f0f0f0; font-weight: bold; text-align: center; }
+      .page-break { page-break-before: always; }
+      .footer { text-align: right; margin-top: 15mm; font-size: 11pt; }
+      .signature { display: flex; justify-content: space-between; margin-top: 20mm; }
+      .signature div { text-align: center; }
+      .signature .line { border-top: 1px solid #000; width: 200px; margin-top: 30px; padding-top: 3px; }
+      @media print { @page { size: A4; margin: 15mm 20mm; } body { padding: 0; } }
+    </style></head><body>${content}</body></html>`);
+    win.document.close();
+    setTimeout(() => win.print(), 500);
+  };
+
+  return (
+    <div>
+      <div className="flex flex-col sm:flex-row gap-3 mb-4 no-print">
+        <input type="date" className="border rounded-lg px-3 py-2 text-sm" value={dateFrom} onChange={e => setDateFrom(e.target.value)} placeholder="Від"/>
+        <input type="date" className="border rounded-lg px-3 py-2 text-sm" value={dateTo} onChange={e => setDateTo(e.target.value)} placeholder="До"/>
+        <button onClick={handlePrint} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm">{Icons.print} Друкувати звіт</button>
+        <button onClick={onClose} className="px-4 py-2 rounded-lg border text-gray-600 hover:bg-gray-50 text-sm">Закрити</button>
+      </div>
+
+      <div ref={printRef} className="bg-white border rounded-lg p-6" style={{fontFamily: "'Times New Roman', serif"}}>
+        <div className="header" style={{textAlign:'center', marginBottom:'10mm'}}>
+          <p style={{fontSize:'10pt', margin:'2px 0'}}>{SCHOOL_NAME}</p>
+          <p style={{fontSize:'9pt', margin:'2px 0', color:'#555'}}>{SCHOOL_ADDRESS}</p>
+          <p style={{fontSize:'9pt', margin:'2px 0', color:'#555'}}>{SCHOOL_CODE} | {SCHOOL_PHONE}</p>
+          <h1 style={{fontSize:'14pt', marginTop:'8mm', marginBottom:'2mm'}}>ЩОДЕННИК СПОСТЕРЕЖЕНЬ</h1>
+          <h2 style={{fontSize:'12pt', fontWeight:'normal'}}>розвитку дитини з особливими освітніми потребами<br/>в умовах інклюзивного навчання</h2>
+        </div>
+
+        <table className="info-table" style={{width:'100%', borderCollapse:'collapse', marginBottom:'5mm'}}>
+          <tbody>
+            <tr><td style={{fontWeight:'bold', width:'180px', padding:'3px 6px'}}>ПІБ учня:</td><td style={{padding:'3px 6px'}}>{student.lastName} {student.firstName} {student.middleName||''}</td></tr>
+            <tr><td style={{fontWeight:'bold', padding:'3px 6px'}}>Клас:</td><td style={{padding:'3px 6px'}}>{student.className}</td></tr>
+            <tr><td style={{fontWeight:'bold', padding:'3px 6px'}}>Дата народження:</td><td style={{padding:'3px 6px'}}>{student.dateOfBirth ? formatDate(student.dateOfBirth) : '—'}</td></tr>
+            <tr><td style={{fontWeight:'bold', padding:'3px 6px'}}>Категорія ООП:</td><td style={{padding:'3px 6px'}}>{student.category || '—'}</td></tr>
+            <tr><td style={{fontWeight:'bold', padding:'3px 6px'}}>Тип програми:</td><td style={{padding:'3px 6px'}}>{student.programType || '—'}</td></tr>
+            <tr><td style={{fontWeight:'bold', padding:'3px 6px'}}>Номер ІПР:</td><td style={{padding:'3px 6px'}}>{student.iepNumber || '—'}</td></tr>
+            <tr><td style={{fontWeight:'bold', padding:'3px 6px'}}>Асистент вчителя:</td><td style={{padding:'3px 6px'}}>{student.assistantName}</td></tr>
+            <tr><td style={{fontWeight:'bold', padding:'3px 6px'}}>Навчальний рік:</td><td style={{padding:'3px 6px'}}>{student.schoolYear}</td></tr>
+          </tbody>
+        </table>
+
+        <h3 style={{fontSize:'12pt', marginTop:'8mm'}}>Облік спостережень</h3>
+        {dateFrom || dateTo ? <p style={{fontSize:'10pt', color:'#555'}}>Період: {dateFrom ? formatDate(dateFrom) : '...'} — {dateTo ? formatDate(dateTo) : '...'}</p> : null}
+
+        <table className="obs" style={{width:'100%', borderCollapse:'collapse', marginTop:'3mm', fontSize:'9pt'}}>
+          <thead>
+            <tr>
+              <th style={{border:'1px solid #000', padding:'4px', background:'#f0f0f0'}}>Дата</th>
+              <th style={{border:'1px solid #000', padding:'4px', background:'#f0f0f0'}}>День</th>
+              <th style={{border:'1px solid #000', padding:'4px', background:'#f0f0f0'}}>Предмет</th>
+              <th style={{border:'1px solid #000', padding:'4px', background:'#f0f0f0'}}>Тема уроку</th>
+              <th style={{border:'1px solid #000', padding:'4px', background:'#f0f0f0'}}>Поведінка / Навчання</th>
+              <th style={{border:'1px solid #000', padding:'4px', background:'#f0f0f0'}}>Взаємодія</th>
+              <th style={{border:'1px solid #000', padding:'4px', background:'#f0f0f0'}}>Допомога асистента</th>
+              <th style={{border:'1px solid #000', padding:'4px', background:'#f0f0f0'}}>Примітки</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(o => (
+              <tr key={o.id}>
+                <td style={{border:'1px solid #000', padding:'4px', whiteSpace:'nowrap'}}>{formatDate(o.date)}</td>
+                <td style={{border:'1px solid #000', padding:'4px'}}>{getDayName(o.date)}</td>
+                <td style={{border:'1px solid #000', padding:'4px'}}>{o.subject}{o.lessonNumber ? ` (ур.${o.lessonNumber})` : ''}</td>
+                <td style={{border:'1px solid #000', padding:'4px'}}>{o.topic||'—'}</td>
+                <td style={{border:'1px solid #000', padding:'4px'}}>
+                  {[...(o.behavior||[]), ...(o.learning||[])].join('; ') || '—'}
+                  {o.emotionalState ? `\nСтан: ${o.emotionalState}` : ''}
+                  {`\nСамост.: ${o.independence||3}/5`}
+                </td>
+                <td style={{border:'1px solid #000', padding:'4px'}}>{(o.social||[]).join('; ') || '—'}</td>
+                <td style={{border:'1px solid #000', padding:'4px'}}>{(o.helpProvided||[]).join('; ') || '—'}</td>
+                <td style={{border:'1px solid #000', padding:'4px'}}>
+                  {o.detailedNotes||''}
+                  {o.recommendations ? `\nРек.: ${o.recommendations}` : ''}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        <div style={{display:'flex', justifyContent:'space-between', marginTop:'20mm', fontSize:'11pt'}}>
+          <div style={{textAlign:'center'}}>
+            <div style={{borderTop:'1px solid #000', width:'200px', marginTop:'30px', paddingTop:'3px'}}>Асистент вчителя</div>
+          </div>
+          <div style={{textAlign:'center'}}>
+            <div style={{borderTop:'1px solid #000', width:'200px', marginTop:'30px', paddingTop:'3px'}}>Директор</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============ SETTINGS ============
+function SettingsPage({ onExport, onImport }) {
+  const fileRef = useRef(null);
+
+  const handleImport = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        onImport(data);
+        alert('Дані успішно імпортовано!');
+      } catch { alert('Помилка читання файлу'); }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleClear = () => {
+    if(confirm('Ви впевнені? Усі дані будуть видалені безповоротно!')) {
+      localStorage.removeItem('zubraDiary_students');
+      localStorage.removeItem('zubraDiary_observations');
+      localStorage.removeItem('zubraDiary_settings');
+      window.location.reload();
+    }
+  };
+
+  return (
+    <div className="max-w-lg mx-auto space-y-6">
+      <div className="bg-white rounded-xl border p-6">
+        <h3 className="font-semibold text-gray-800 mb-4">Інформація про заклад</h3>
+        <div className="text-sm space-y-2 text-gray-600">
+          <p><strong>Назва:</strong> {SCHOOL_NAME}</p>
+          <p><strong>Адреса:</strong> {SCHOOL_ADDRESS}</p>
+          <p><strong>ЄДРПОУ:</strong> 22373629</p>
+          <p><strong>Телефон:</strong> (032) 227-53-33</p>
+          <p><strong>Директор:</strong> {SCHOOL_DIRECTOR}</p>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border p-6">
+        <h3 className="font-semibold text-gray-800 mb-4">Резервне копіювання</h3>
+        <div className="space-y-3">
+          <button onClick={onExport} className="w-full flex items-center justify-center gap-2 bg-green-600 text-white px-4 py-3 rounded-lg hover:bg-green-700 text-sm">
+            {Icons.download} Експорт даних (JSON)
+          </button>
+          <button onClick={() => fileRef.current?.click()} className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-3 rounded-lg hover:bg-blue-700 text-sm">
+            {Icons.download} Імпорт даних
+          </button>
+          <input ref={fileRef} type="file" accept=".json" className="hidden" onChange={handleImport}/>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border p-6 border-red-200">
+        <h3 className="font-semibold text-red-600 mb-4">Небезпечна зона</h3>
+        <button onClick={handleClear} className="w-full bg-red-500 text-white px-4 py-3 rounded-lg hover:bg-red-600 text-sm">Очистити всі дані</button>
+      </div>
+    </div>
+  );
+}
+
+// ============ MAIN APP ============
+function App() {
+  const [students, setStudents] = useState(() => Storage.get('students', []));
+  const [observations, setObservations] = useState(() => Storage.get('observations', []));
+  const [page, setPage] = useState('home');
+  const [selectedStudentId, setSelectedStudentId] = useState(null);
+  const [showStudentForm, setShowStudentForm] = useState(false);
+  const [editStudent, setEditStudent] = useState(null);
+  const [showObsForm, setShowObsForm] = useState(false);
+  const [editObs, setEditObs] = useState(null);
+  const [showPrint, setShowPrint] = useState(false);
+  const [mobileMenu, setMobileMenu] = useState(false);
+
+  // Persist
+  useEffect(() => { Storage.set('students', students); }, [students]);
+  useEffect(() => { Storage.set('observations', observations); }, [observations]);
+
+  // Student CRUD
+  const saveStudent = (s) => {
+    if (students.find(st => st.id === s.id)) setStudents(students.map(st => st.id === s.id ? s : st));
+    else setStudents([...students, s]);
+    setShowStudentForm(false); setEditStudent(null);
+  };
+  const deleteStudent = (id) => {
+    setStudents(students.filter(s => s.id !== id));
+    setObservations(observations.filter(o => o.studentId !== id));
+  };
+
+  // Observation CRUD
+  const saveObs = (o) => {
+    if (observations.find(ob => ob.id === o.id)) setObservations(observations.map(ob => ob.id === o.id ? o : ob));
+    else setObservations([...observations, o]);
+    setShowObsForm(false); setEditObs(null);
+  };
+  const deleteObs = (id) => { setObservations(observations.filter(o => o.id !== id)); };
+
+  // Export/Import
+  const exportData = () => {
+    const data = { students, observations, exportDate: new Date().toISOString(), school: SCHOOL_NAME };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `diary_backup_${todayStr()}.json`; a.click();
+    URL.revokeObjectURL(url);
+  };
+  const importData = (data) => {
+    if (data.students) setStudents(data.students);
+    if (data.observations) setObservations(data.observations);
+  };
+
+  const selectedStudent = students.find(s => s.id === selectedStudentId);
+
+  // Navigation
+  const nav = [
+    { id: 'home', label: 'Головна', icon: Icons.home },
+    { id: 'students', label: 'Учні', icon: Icons.user },
+    { id: 'settings', label: 'Налаштування', icon: Icons.settings },
+  ];
+
+  const goToStudent = (id) => { setSelectedStudentId(id); setPage('student'); };
+
+  // Recent observations
+  const recentObs = [...observations].sort((a,b) => b.date.localeCompare(a.date)).slice(0,5);
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-gradient-to-r from-blue-700 to-blue-900 text-white shadow-lg no-print">
+        <div className="max-w-6xl mx-auto px-4 py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <button className="lg:hidden" onClick={() => setMobileMenu(!mobileMenu)}>{mobileMenu ? Icons.close : Icons.menu}</button>
+              <div>
+                <h1 className="text-lg font-bold leading-tight">Щоденник спостережень</h1>
+                <p className="text-blue-200 text-xs hidden sm:block">{SCHOOL_NAME}</p>
+              </div>
+            </div>
+            <div className="hidden lg:flex items-center gap-1">
+              {nav.map(n => (
+                <button key={n.id} onClick={() => { setPage(n.id); setSelectedStudentId(null); setShowPrint(false); }}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition ${page === n.id || (n.id==='students' && page==='student') ? 'bg-white bg-opacity-20' : 'hover:bg-white hover:bg-opacity-10'}`}>
+                  {n.icon} {n.label}
+                </button>
+              ))}
+            </div>
+            <div className="text-right hidden sm:block">
+              <div className="text-xs text-blue-200">{formatDate(todayStr())}</div>
+              <div className="text-xs text-blue-300">{students.length} учнів | {observations.length} записів</div>
+            </div>
+          </div>
+          {/* Mobile menu */}
+          {mobileMenu && (
+            <div className="lg:hidden mt-3 pt-3 border-t border-blue-600 space-y-1">
+              {nav.map(n => (
+                <button key={n.id} onClick={() => { setPage(n.id); setSelectedStudentId(null); setShowPrint(false); setMobileMenu(false); }}
+                  className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-left ${page === n.id ? 'bg-white bg-opacity-20' : 'hover:bg-white hover:bg-opacity-10'}`}>
+                  {n.icon} {n.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </header>
+
+      {/* Main content */}
+      <main className="max-w-6xl mx-auto px-4 py-6">
+        {/* HOME */}
+        {page === 'home' && (
+          <div>
+            <div className="bg-white rounded-xl border p-6 mb-6">
+              <h2 className="text-xl font-bold text-gray-800 mb-1">{SCHOOL_NAME}</h2>
+              <p className="text-sm text-gray-500">{SCHOOL_ADDRESS}</p>
+              <p className="text-sm text-gray-500">{SCHOOL_PHONE} | Директор: {SCHOOL_DIRECTOR}</p>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+              <div className="bg-white rounded-xl border p-4 text-center">
+                <div className="text-3xl font-bold text-blue-600">{students.length}</div>
+                <div className="text-sm text-gray-500">Учнів</div>
+              </div>
+              <div className="bg-white rounded-xl border p-4 text-center">
+                <div className="text-3xl font-bold text-green-600">{observations.length}</div>
+                <div className="text-sm text-gray-500">Спостережень</div>
+              </div>
+              <div className="bg-white rounded-xl border p-4 text-center">
+                <div className="text-3xl font-bold text-purple-600">{observations.filter(o => o.date === todayStr()).length}</div>
+                <div className="text-sm text-gray-500">Сьогодні</div>
+              </div>
+              <div className="bg-white rounded-xl border p-4 text-center">
+                <div className="text-3xl font-bold text-orange-600">{new Set(observations.filter(o => o.date === todayStr()).map(o => o.studentId)).size}</div>
+                <div className="text-sm text-gray-500">Учнів сьогодні</div>
+              </div>
+            </div>
+
+            {/* Quick actions */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+              <button onClick={() => { setPage('students'); }} className="bg-blue-600 text-white p-4 rounded-xl hover:bg-blue-700 flex items-center gap-3 text-left">
+                <div className="bg-white bg-opacity-20 rounded-lg p-2">{Icons.user}</div>
+                <div><div className="font-semibold">Переглянути учнів</div><div className="text-blue-200 text-sm">Список усіх учнів з ООП</div></div>
+              </button>
+              <button onClick={() => { setShowStudentForm(true); setEditStudent(null); }} className="bg-green-600 text-white p-4 rounded-xl hover:bg-green-700 flex items-center gap-3 text-left">
+                <div className="bg-white bg-opacity-20 rounded-lg p-2">{Icons.plus}</div>
+                <div><div className="font-semibold">Додати учня</div><div className="text-green-200 text-sm">Створити нову картку учня</div></div>
+              </button>
+            </div>
+
+            {/* Recent observations */}
+            {recentObs.length > 0 && (
+              <div className="bg-white rounded-xl border p-4">
+                <h3 className="font-semibold text-gray-800 mb-3">Останні спостереження</h3>
+                <div className="space-y-2">
+                  {recentObs.map(o => {
+                    const st = students.find(s => s.id === o.studentId);
+                    if (!st) return null;
+                    return (
+                      <div key={o.id} onClick={() => goToStudent(o.studentId)} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 cursor-pointer">
+                        <div className="bg-blue-100 rounded-full w-8 h-8 flex items-center justify-center text-blue-600 text-sm font-bold">{st.firstName[0]}</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-gray-800 truncate">{st.lastName} {st.firstName}</div>
+                          <div className="text-xs text-gray-400">{o.subject} — {formatDate(o.date)}</div>
+                        </div>
+                        {o.emotionalState && <span className="text-sm">{o.emotionalState.split(' ')[0]}</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {students.length === 0 && (
+              <div className="text-center py-8">
+                <p className="text-gray-400">Почніть роботу — додайте першого учня з ООП</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* STUDENTS LIST */}
+        {page === 'students' && (
+          <StudentsPage
+            students={students}
+            onSelect={goToStudent}
+            onAdd={() => { setShowStudentForm(true); setEditStudent(null); }}
+            onEdit={(s) => { setShowStudentForm(true); setEditStudent(s); }}
+            onDelete={deleteStudent}
+          />
+        )}
+
+        {/* STUDENT DETAIL */}
+        {page === 'student' && selectedStudent && !showPrint && (
+          <StudentDetail
+            student={selectedStudent}
+            observations={observations}
+            onBack={() => { setPage('students'); setSelectedStudentId(null); }}
+            onAddObs={() => { setShowObsForm(true); setEditObs(null); }}
+            onQuickObs={() => { setEditObs(makeRandomObs(selectedStudentId)); setShowObsForm(true); }}
+            onEditObs={(o) => { setShowObsForm(true); setEditObs(o); }}
+            onDeleteObs={deleteObs}
+            onPrint={() => setShowPrint(true)}
+          />
+        )}
+
+        {/* PRINT REPORT */}
+        {page === 'student' && selectedStudent && showPrint && (
+          <PrintReport
+            student={selectedStudent}
+            observations={observations.filter(o => o.studentId === selectedStudent.id)}
+            onClose={() => setShowPrint(false)}
+          />
+        )}
+
+        {/* SETTINGS */}
+        {page === 'settings' && (
+          <SettingsPage onExport={exportData} onImport={importData}/>
+        )}
+      </main>
+
+      {/* Footer */}
+      <footer className="text-center py-4 text-xs text-gray-400 no-print">
+        <p>{SCHOOL_NAME} &bull; Електронний щоденник спостережень за дітьми з ООП</p>
+        <p>Навчальний рік 2025–2026</p>
+      </footer>
+
+      {/* Student Modal */}
+      <Modal open={showStudentForm} onClose={() => { setShowStudentForm(false); setEditStudent(null); }} title={editStudent ? 'Редагувати учня' : 'Додати нового учня'} wide>
+        <StudentForm student={editStudent} onSave={saveStudent} onClose={() => { setShowStudentForm(false); setEditStudent(null); }}/>
+      </Modal>
+
+      {/* Observation Modal */}
+      <Modal open={showObsForm} onClose={() => { setShowObsForm(false); setEditObs(null); }} title={editObs ? 'Редагувати спостереження' : 'Нове спостереження'} wide>
+        <ObservationForm obs={editObs} studentId={selectedStudentId} onSave={saveObs} onClose={() => { setShowObsForm(false); setEditObs(null); }}/>
+      </Modal>
+    </div>
+  );
+}
+
+ReactDOM.render(<App/>, document.getElementById('root'));
+</script>
+</body>
+</html>

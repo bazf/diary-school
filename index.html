@@ -47,11 +47,13 @@ const SUBJECTS = [
   'Зарубіжна література','Географія','Біологія','Фізика','Хімія','Інше'
 ];
 
+const OTHER_OPTION = 'Інше';
+
 const BEHAVIOR_OPTIONS = [
   'Спокійна, врівноважена','Активна, зацікавлена','Пасивна, байдужа',
   'Тривожна, неспокійна','Агресивна','Легко відволікається',
   'Плаксива','Замкнена','Імпульсивна','Гіперактивна',
-  'Втомлена, сонлива','Дратівлива'
+  'Втомлена, сонлива','Дратівлива', OTHER_OPTION
 ];
 
 const LEARNING_OPTIONS = [
@@ -60,7 +62,7 @@ const LEARNING_OPTIONS = [
   'Працює повільно, але якісно','Працює швидко, але з помилками',
   'Виявляє інтерес до навчання','Не виявляє інтересу',
   'Добре розуміє новий матеріал','Потребує повторного пояснення',
-  'Має труднощі з концентрацією','Швидко втомлюється'
+  'Має труднощі з концентрацією','Швидко втомлюється', OTHER_OPTION
 ];
 
 const SOCIAL_OPTIONS = [
@@ -68,7 +70,7 @@ const SOCIAL_OPTIONS = [
   'Уникає контактів','Конфліктує з іншими',
   'Взаємодіє з вчителем','Не йде на контакт з вчителем',
   'Працює в парі/групі','Не може працювати в групі',
-  'Допомагає іншим','Потребує підтримки однолітків'
+  'Допомагає іншим','Потребує підтримки однолітків', OTHER_OPTION
 ];
 
 const HELP_OPTIONS = [
@@ -76,7 +78,7 @@ const HELP_OPTIONS = [
   'Додатковий час','Візуальна опора','Емоційна підтримка',
   'Фізична допомога','Індивідуальне пояснення','Адаптований матеріал',
   'Переключення уваги','Заохочення, мотивація','Допомога в організації робочого місця',
-  'Супровід на перерві','Не потребувала допомоги'
+  'Супровід на перерві','Не потребувала допомоги', OTHER_OPTION
 ];
 
 const CATEGORIES_OF_NEEDS = [
@@ -86,7 +88,12 @@ const CATEGORIES_OF_NEEDS = [
   'Порушення мовлення','Затримка психічного розвитку',
   'Розлади аутистичного спектра',
   'Складні порушення розвитку',
-  'Інші труднощі у навчанні'
+  'Інші труднощі у навчанні', OTHER_OPTION
+];
+
+const PROGRAM_TYPE_OPTIONS = [
+  'Адаптована','Модифікована','Модифіковано-адаптована',
+  'Загальноосвітня з корекційним компонентом', OTHER_OPTION
 ];
 
 // ============ STORAGE ============
@@ -127,8 +134,8 @@ const pickN = (arr, min = 1, max = 2) => {
 };
 
 const EMOTIONAL_STATES = [
-  '😊 Позитивний','😐 Нейтральний','😟 Тривожний',
-  '😢 Пригнічений','😠 Роздратований','😴 Апатичний'
+  'Позитивний','Нейтральний','Тривожний',
+  'Пригнічений','Роздратований','Апатичний'
 ];
 
 const TOPICS_BY_SUBJECT = {
@@ -257,7 +264,7 @@ const RANDOM_RECOMMENDATIONS = [
 ];
 
 const makeRandomObs = (studentId) => {
-  const subject = pickOne(SUBJECTS.filter(s => s !== 'Інше'));
+  const subject = pickOne(SUBJECTS.filter(s => s !== OTHER_OPTION));
   const topicPool = TOPICS_BY_SUBJECT[subject] || ['Вивчення нового матеріалу','Закріплення теми','Самостійна робота','Повторення пройденого','Тематичне оцінювання'];
   return {
     id: genId(),
@@ -266,10 +273,10 @@ const makeRandomObs = (studentId) => {
     subject,
     topic: pickOne(topicPool),
     lessonNumber: String(Math.ceil(Math.random() * 7)),
-    behavior: pickN(BEHAVIOR_OPTIONS, 1, 3),
-    learning: pickN(LEARNING_OPTIONS, 1, 3),
-    social: pickN(SOCIAL_OPTIONS, 1, 2),
-    helpProvided: pickN(HELP_OPTIONS, 1, 3),
+    behavior: pickN(BEHAVIOR_OPTIONS.filter(o => o !== OTHER_OPTION), 1, 3),
+    learning: pickN(LEARNING_OPTIONS.filter(o => o !== OTHER_OPTION), 1, 3),
+    social: pickN(SOCIAL_OPTIONS.filter(o => o !== OTHER_OPTION), 1, 2),
+    helpProvided: pickN(HELP_OPTIONS.filter(o => o !== OTHER_OPTION), 1, 3),
     emotionalState: pickOne(EMOTIONAL_STATES),
     independence: Math.ceil(Math.random() * 5),
     detailedNotes: pickOne(RANDOM_NOTES),
@@ -303,6 +310,7 @@ function MultiSelect({ options, selected, onChange, placeholder }) {
   const [open, setOpen] = useState(false);
   const [custom, setCustom] = useState('');
   const ref = useRef(null);
+  const inputRef = useRef(null);
 
   useEffect(() => {
     const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
@@ -339,6 +347,7 @@ function MultiSelect({ options, selected, onChange, placeholder }) {
         <div className="absolute z-50 mt-1 w-full bg-white border rounded-lg shadow-lg max-h-60 overflow-y-auto">
           <div className="p-2 border-b flex gap-1">
             <input
+              ref={inputRef}
               className="flex-1 border rounded px-2 py-1 text-sm"
               placeholder="Додати своє..."
               value={custom}
@@ -349,12 +358,65 @@ function MultiSelect({ options, selected, onChange, placeholder }) {
             <button onClick={(e) => { e.stopPropagation(); addCustom(); }} className="text-sm bg-blue-500 text-white px-2 rounded">+</button>
           </div>
           {options.map(opt => (
-            <label key={opt} className="flex items-center px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm" onClick={e => e.stopPropagation()}>
-              <input type="checkbox" checked={selected.includes(opt)} onChange={() => toggle(opt)} className="mr-2 rounded"/>
-              {opt}
-            </label>
+            opt === OTHER_OPTION ? (
+              <button
+                key={opt}
+                type="button"
+                className="w-full px-3 py-2 hover:bg-gray-50 text-left text-sm border-t"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  inputRef.current?.focus();
+                }}
+              >
+                {opt}
+              </button>
+            ) : (
+              <label key={opt} className="flex items-center px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm" onClick={e => e.stopPropagation()}>
+                <input type="checkbox" checked={selected.includes(opt)} onChange={() => toggle(opt)} className="mr-2 rounded"/>
+                {opt}
+              </label>
+            )
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+function SelectWithCustom({ options, value, onChange, placeholder = '— Оберіть —', inputPlaceholder = 'Введіть свій варіант' }) {
+  const normalizedOptions = options.includes(OTHER_OPTION) ? options : [...options, OTHER_OPTION];
+  const initialCustom = value && !normalizedOptions.includes(value);
+  const [isOtherSelected, setIsOtherSelected] = useState(initialCustom);
+  const [customValue, setCustomValue] = useState(initialCustom ? value : '');
+
+  const handleSelect = (nextValue) => {
+    if (nextValue === OTHER_OPTION) {
+      setIsOtherSelected(true);
+      onChange(customValue);
+      return;
+    }
+    setIsOtherSelected(false);
+    setCustomValue('');
+    onChange(nextValue);
+  };
+
+  return (
+    <div className="space-y-2">
+      <select className="w-full border rounded-lg p-2 text-sm bg-white" value={isOtherSelected ? OTHER_OPTION : (value || '')} onChange={e => handleSelect(e.target.value)}>
+        <option value="">{placeholder}</option>
+        {normalizedOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+      </select>
+      {isOtherSelected && (
+        <input
+          className="w-full border rounded-lg p-2 text-sm"
+          value={customValue}
+          onChange={e => {
+            const nextValue = e.target.value;
+            setCustomValue(nextValue);
+            onChange(nextValue);
+          }}
+          placeholder={inputPlaceholder}
+        />
       )}
     </div>
   );
@@ -446,18 +508,20 @@ function StudentForm({ student, onSave, onClose }) {
         {/* Категорія ООП */}
         <div className="col-span-2">
           <label className="block text-sm font-medium text-gray-700 mb-1">Категорія ООП</label>
-          <select className="w-full border rounded-lg p-2 text-sm bg-white" value={form.category||''} onChange={e => upd('category', e.target.value)}>
-            <option value="">— Оберіть —</option>
-            {CATEGORIES_OF_NEEDS.map(o => <option key={o} value={o}>{o}</option>)}
-          </select>
+          <SelectWithCustom
+            options={CATEGORIES_OF_NEEDS}
+            value={form.category || ''}
+            onChange={v => upd('category', v)}
+          />
         </div>
         {/* Тип програми */}
         <div className="col-span-2">
           <label className="block text-sm font-medium text-gray-700 mb-1">Тип навчальної програми</label>
-          <select className="w-full border rounded-lg p-2 text-sm bg-white" value={form.programType||''} onChange={e => upd('programType', e.target.value)}>
-            <option value="">— Оберіть —</option>
-            {['Адаптована','Модифікована','Модифіковано-адаптована','Загальноосвітня з корекційним компонентом'].map(o => <option key={o} value={o}>{o}</option>)}
-          </select>
+          <SelectWithCustom
+            options={PROGRAM_TYPE_OPTIONS}
+            value={form.programType || ''}
+            onChange={v => upd('programType', v)}
+          />
         </div>
         {/* Номер ІПР */}
         <div className="col-span-1">
@@ -513,6 +577,9 @@ function ObservationForm({ obs, studentId, onSave, onClose }) {
     emotionalState: '', independence: 3,
     detailedNotes: '', recommendations: ''
   });
+  const initialCustomEmotion = Boolean((obs || {}).emotionalState && !EMOTIONAL_STATES.includes((obs || {}).emotionalState));
+  const [useCustomEmotion, setUseCustomEmotion] = useState(initialCustomEmotion);
+  const [customEmotion, setCustomEmotion] = useState(initialCustomEmotion ? obs.emotionalState : '');
 
   const upd = useCallback((k, v) => setForm(prev => ({...prev, [k]: v})), []);
 
@@ -530,10 +597,13 @@ function ObservationForm({ obs, studentId, onSave, onClose }) {
       </div>
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Предмет <span className="text-red-500">*</span></label>
-        <select className="w-full border rounded-lg p-2 text-sm bg-white" value={form.subject} onChange={e => upd('subject', e.target.value)}>
-          <option value="">— Оберіть предмет —</option>
-          {SUBJECTS.map(s => <option key={s}>{s}</option>)}
-        </select>
+        <SelectWithCustom
+          options={SUBJECTS}
+          value={form.subject}
+          onChange={v => upd('subject', v)}
+          placeholder="— Оберіть предмет —"
+          inputPlaceholder="Введіть власний предмет"
+        />
       </div>
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Тема уроку</label>
@@ -543,13 +613,32 @@ function ObservationForm({ obs, studentId, onSave, onClose }) {
       <div className="bg-yellow-50 rounded-lg p-3">
         <h4 className="font-medium text-yellow-800 mb-1 text-sm">Емоційний стан</h4>
         <div className="flex flex-wrap gap-2">
-          {['😊 Позитивний','😐 Нейтральний','😟 Тривожний','😢 Пригнічений','😠 Роздратований','😴 Апатичний'].map(e => (
-            <button key={e} onClick={() => upd('emotionalState', e)}
-              className={`px-3 py-1 rounded-full text-sm border ${form.emotionalState === e ? 'bg-yellow-500 text-white border-yellow-500' : 'bg-white hover:bg-yellow-100 border-yellow-300'}`}>
+          {EMOTIONAL_STATES.map(e => (
+            <button key={e} onClick={() => { setUseCustomEmotion(false); setCustomEmotion(''); upd('emotionalState', e); }}
+              className={`px-3 py-1 rounded-full text-sm border ${form.emotionalState === e && !useCustomEmotion ? 'bg-yellow-500 text-white border-yellow-500' : 'bg-white hover:bg-yellow-100 border-yellow-300'}`}>
               {e}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => { setUseCustomEmotion(true); upd('emotionalState', customEmotion); }}
+            className={`px-3 py-1 rounded-full text-sm border ${useCustomEmotion ? 'bg-yellow-500 text-white border-yellow-500' : 'bg-white hover:bg-yellow-100 border-yellow-300'}`}
+          >
+            {OTHER_OPTION}
+          </button>
         </div>
+        {useCustomEmotion && (
+          <input
+            className="w-full border rounded-lg p-2 text-sm mt-3 bg-white"
+            value={customEmotion}
+            onChange={e => {
+              const nextValue = e.target.value;
+              setCustomEmotion(nextValue);
+              upd('emotionalState', nextValue);
+            }}
+            placeholder="Введіть власний емоційний стан"
+          />
+        )}
       </div>
 
       <div>
@@ -1262,7 +1351,7 @@ function App() {
                           <div className="text-sm font-medium text-gray-800 truncate">{st.lastName} {st.firstName}</div>
                           <div className="text-xs text-gray-400">{o.subject} — {formatDate(o.date)}</div>
                         </div>
-                        {o.emotionalState && <span className="text-sm">{o.emotionalState.split(' ')[0]}</span>}
+                        {o.emotionalState && <span className="text-xs text-gray-500 max-w-24 truncate">{o.emotionalState}</span>}
                       </div>
                     );
                   })}
